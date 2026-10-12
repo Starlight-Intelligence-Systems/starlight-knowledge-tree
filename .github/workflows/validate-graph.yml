@@ -41,6 +41,9 @@ jobs:
         env:
           NODE_ENV: ci
 
+      - name: Validate Atlas evidence records
+        run: npm run validate:atlas
+
       - name: Check for private data patterns
         run: |
           echo "Scanning for potential private data patterns..."
