@@ -152,15 +152,30 @@ export function stableJSON(value) {
   return JSON.stringify(value);
 }
 export function hashAtlasContent(atlas) { const { projection: _projection, ...payload } = atlas; return createHash("sha256").update(stableJSON(payload)).digest("hex"); }
+function validateHistoricalDates(atlas, compiledOn) {
+  const beforeCompilation = (value, label) => require(value === undefined || value === null || value <= compiledOn, `${label} is after projection.compiled_on`);
+  beforeCompilation(atlas.created_on, "created_on");
+  beforeCompilation(atlas.coverage.search_completed_on, "coverage.search_completed_on");
+  for (const source of atlas.sources) for (const field of ["published_on", "updated_on", "issue_on", "event_on", "accessed_on", "update_checked_on", "first_preprint_on", "journal_published_on"]) beforeCompilation(source[field], `${source.id}.${field}`);
+  for (const claim of atlas.claims) {
+    beforeCompilation(claim.first_recorded_on, `${claim.id}.first_recorded_on`);
+    beforeCompilation(claim.last_source_checked_on, `${claim.id}.last_source_checked_on`);
+    beforeCompilation(claim.review.reviewed_on, `${claim.id}.review.reviewed_on`);
+    // next_review_on schedules future work; it is not a completed historical event.
+  }
+  for (const article of atlas.articles) beforeCompilation(article.created_on, `${article.id}.created_on`);
+}
 export function compileAtlas(input, projection) {
   const atlas = normalizeAtlas(input);
   delete atlas.projection;
   atlas.projection = projectionRecord({ ...projection, content_sha256: hashAtlasContent(atlas) });
+  validateHistoricalDates(atlas, atlas.projection.compiled_on);
   return atlas;
 }
 export function validateAtlas(input) {
   const atlas = normalizeAtlas(input);
   require(atlas.projection !== undefined, "Atlas projection provenance is required");
+  validateHistoricalDates(atlas, atlas.projection.compiled_on);
   require(atlas.projection.content_sha256 === hashAtlasContent(atlas), "Atlas content digest mismatch");
   // Fail closed rather than let a stale projection silently hide unprojected canonical fields.
   require(stableJSON(input) === stableJSON(atlas), "Atlas projection includes unknown or noncanonical public fields");
@@ -211,24 +226,28 @@ export function sourcesForArticle(atlas, article, citationsOnly = false) {
   if (!citationsOnly) for (const id of article.related_source_ids) ids.add(id);
   return atlas.sources.filter(s => ids.has(s.id));
 }
-export function searchAtlas(atlas, { query = "", domain = "", lens = "", limit = 20 } = {}) {
+export function searchAtlas(atlas, { query = "", domain = "", lens = "", limit = 20, offset = 0 } = {}) {
   require(typeof query === "string" && query.length <= 200 && !/[\u0000-\u001f\u007f]/.test(query), "query must be at most 200 characters without controls");
   require(typeof domain === "string" && domain.length <= 200 && (!domain || ID.test(domain)), "domain must be a bounded stable domain id");
   require(typeof lens === "string" && (!lens || LENSES.has(lens)), "lens must be a known lens");
   require(Number.isInteger(limit) && limit >= 1 && limit <= 50, "limit must be an integer from 1 to 50");
+  require(Number.isInteger(offset) && offset >= 0 && offset <= 10000, "offset must be an integer from 0 to 10000");
   const tokens = query.toLocaleLowerCase("en").trim().split(/\s+/).filter(Boolean);
   const matches = atlas.articles.filter(a => (!domain || a.domain_id === domain) && (!lens || a.lens === lens)).filter(a => {
     const text = [a.id, a.slug, a.title, a.editorial_hook, a.question, ...claimsForArticle(atlas, a).flatMap(c => [c.id, c.text, c.scope, c.limits]), ...sourcesForArticle(atlas, a).flatMap(s => [s.id, s.title, s.doi ?? ""])].join(" ").toLocaleLowerCase("en");
     return tokens.every(token => text.includes(token));
   });
-  return { query, domain: domain || null, lens: lens || null, limit, total: matches.length, truncated: matches.length > limit, articles: matches.slice(0, limit) };
+  const truncated = offset + limit < matches.length;
+  return { query, domain: domain || null, lens: lens || null, limit, offset, total: matches.length, next_offset: truncated ? offset + limit : null, truncated, articles: matches.slice(offset, offset + limit) };
 }
 export function parseAtlasQuery(params) {
-  const allowed = new Set(["q", "domain", "lens", "limit"]);
-  require(![...params.keys()].some(key => !allowed.has(key) || params.getAll(key).length !== 1), "Use one value for q, domain, lens and limit");
+  const allowed = new Set(["q", "domain", "lens", "limit", "offset"]);
+  require(![...params.keys()].some(key => !allowed.has(key) || params.getAll(key).length !== 1), "Use one value for q, domain, lens, limit and offset");
   const rawLimit = params.get("limit");
   require(rawLimit === null || /^(?:[1-9]|[1-4][0-9]|50)$/.test(rawLimit), "limit must be an integer from 1 to 50");
-  return { query: params.get("q") ?? "", domain: params.get("domain") ?? "", lens: params.get("lens") ?? "", limit: rawLimit === null ? 20 : Number(rawLimit) };
+  const rawOffset = params.get("offset");
+  require(rawOffset === null || /^(?:0|[1-9][0-9]{0,3}|10000)$/.test(rawOffset), "offset must be an integer from 0 to 10000");
+  return { query: params.get("q") ?? "", domain: params.get("domain") ?? "", lens: params.get("lens") ?? "", limit: rawLimit === null ? 20 : Number(rawLimit), offset: rawOffset === null ? 0 : Number(rawOffset) };
 }
 function markdownText(value) { return value.replace(/\r\n?|\n/g, " ").replace(/[!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~]/g, "\\$&"); }
 function human(value) { return markdownText(value.replaceAll("_", " ")); }
@@ -247,7 +266,9 @@ function sourceDetails(s) {
   return details.join(" ");
 }
 export function articleMarkdown(atlas, article) {
-  const used = sourcesForArticle(atlas, article, true); const footnote = new Map(used.map((s, i) => [s.id, i + 1]));
+  const sourceMap = new Map(atlas.sources.map(source => [source.id, source]));
+  const used = [...new Set(claimsForArticle(atlas, article).flatMap(claim => claim.evidence.map(edge => edge.source_id)))].map(id => sourceMap.get(id));
+  const footnote = new Map(used.map((s, i) => [s.id, i + 1]));
   const lines = [`# ${markdownText(article.title)}`, "", `> EDITORIAL DRAFT — ${ATLAS_NOTICE}`, "", markdownText(article.editorial_hook), "", "## Claims", ""];
   for (const c of claimsForArticle(atlas, article)) {
     const refs = [...new Set(c.evidence.map(e => e.source_id))].map(id => `[^${footnote.get(id)}]`).join("");

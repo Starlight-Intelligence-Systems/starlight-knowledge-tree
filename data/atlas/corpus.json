@@ -4,7 +4,7 @@
   "status": "editorial_draft",
   "editorial_notice": "Public editorial drafts. Source inspection and claim standing describe the recorded evidence; they do not establish independent replication or scientific consensus.",
   "created_on": "2026-10-13",
-  "license": "MIT for original authored records and software; source-specific rights remain recorded. No publisher full text or third-party media is included.",
+  "license": "not_assigned_pending_owner_review",
   "coverage": {
     "search_completed_on": "2026-10-13",
     "systematic_review": false,
@@ -191,7 +191,23 @@
       "update_check_scope": "Crossmark publisher record says future updates will be listed; this is a bounded status-page check, not an exhaustive corrections/retraction search.",
       "issue_date_note": "January 2026 is the verified issue month. The day 01 in issue_on is a normalization, not a verified issue day.",
       "update_check_url": "https://crossmark.crossref.org/dialog/?doi=10.1038/s41561-025-01838-6",
-      "update_checked_on": "2026-10-13"
+      "update_checked_on": "2026-10-13",
+      "authors": [
+        "Yoshihiro Furukawa",
+        "Sako Sunami",
+        "Yoshinori Takano",
+        "Toshiki Koga",
+        "Yuta Hirakawa",
+        "Yasuhiro Oba",
+        "Hiroshi Naraoka",
+        "Daisuke Saigusa",
+        "Takaaki Yoshikawa",
+        "Satoru Tanaka",
+        "Daniel P. Glavin",
+        "Jason P. Dworkin",
+        "Harold C. Connolly Jr.",
+        "Dante S. Lauretta"
+      ]
     },
     {
       "id": "source-pompeii-mit",
@@ -247,7 +263,20 @@
       "update_check_scope": "Publisher and PMC search-index records expose a 30 January 2026 author-affiliation correction for Claire Hayhow and Kristin Bergmann. The retrieved notice reports affiliation changes; no change to the inspected scientific claim text is described.",
       "source_license_reported": "CC BY-NC-ND 4.0; bibliographic records and original paraphrases only are included here.",
       "update_check_url": "https://www.nature.com/articles/s41467-025-66634-7",
-      "update_checked_on": "2026-10-13"
+      "update_checked_on": "2026-10-13",
+      "authors": [
+        "Ellie Vaserman",
+        "James C. Weaver",
+        "Claire Hayhow",
+        "Kristin Bergmann",
+        "Celestino Grifa",
+        "Roberto Scalesse",
+        "Valeria Amoretti",
+        "Antonino Russo",
+        "Gennaro Iovino",
+        "Gabriel Zuchtriegel",
+        "Admir Masic"
+      ]
     },
     {
       "id": "source-desi-dr2",
@@ -293,7 +322,8 @@
         "full_text_redistribution": "not_granted",
         "stored_content": "bibliographic_metadata_and_original_paraphrase",
         "media_included": false
-      }
+      },
+      "report_author": "NASA Webb Mission Team"
     },
     {
       "id": "source-webb-paper",
@@ -375,7 +405,10 @@
       "arxiv_id": "2503.14738",
       "inspected_version": "v3",
       "date_note": "published_on is initial arXiv submission, not a verified journal publication date. DOI identifies the journal paper.",
-      "update_checked_on": "2026-10-13"
+      "update_checked_on": "2026-10-13",
+      "authors": [
+        "DESI Collaboration"
+      ]
     },
     {
       "id": "source-desi-public-release",
@@ -431,7 +464,35 @@
       "date_note": "published_on is initial arXiv submission; journal_published_on is separately verified metadata.",
       "published_version_metadata_url": "https://research-explorer.ista.ac.at/record/22950",
       "journal_published_on": "2026-07-29",
-      "update_checked_on": "2026-10-13"
+      "update_checked_on": "2026-10-13",
+      "authors": [
+        "Pierluigi Rinaldi",
+        "George H. Rieke",
+        "Zihao Wu",
+        "Carys J. E. Gilbert",
+        "Fabio Pacucci",
+        "Luigi Barchiesi",
+        "Stacey Alberts",
+        "Stefano Carniani",
+        "Andrew J. Bunker",
+        "Rachana Bhatawdekar",
+        "Francesco D'Eugenio",
+        "Zhiyuan Ji",
+        "Benjamin D. Johnson",
+        "Kevin Hainline",
+        "Vasily Kokorev",
+        "Nimisha Kumari",
+        "Edoardo Iani",
+        "Jianwei Lyu",
+        "Roberto Maiolino",
+        "Eleonora Parlanti",
+        "Brant E. Robertson",
+        "Yang Sun",
+        "Cristian Vignali",
+        "Christina C. Williams",
+        "Christopher N. A. Willmer",
+        "Yongda Zhu"
+      ]
     }
   ],
   "claims": [
@@ -873,6 +934,5 @@
       "publication_status": "editorial_draft",
       "created_on": "2026-10-13"
     }
-  ],
-  "admission_receipt": "https://github.com/frankxai/agentic-ops/pull/231"
+  ]
 }
