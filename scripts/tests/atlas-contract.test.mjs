@@ -118,6 +118,45 @@ test("history cannot skip an intermediate revision or reintroduce the same versi
   const value = seed(); value.claims[0].revision = 3; assert.throws(() => validateClaimHistory(value, [originalHistory]), /claim-debris-sample@2/);
   assert.throws(() => validateClaimHistory(original, [originalHistory, originalHistory]), /duplicate claim revision/);
 });
+test("affirmative retained history cannot replace support with qualification or contradiction", () => {
+  for (const standing of ["supported_within_scope", "tentative"]) for (const relation of ["qualifies", "contradicts"]) rejectsHistory(document => {
+    const claim = document.history.previous_claim_revisions[0]; claim.standing = standing;
+    claim.evidence.forEach(edge => edge.relation = relation);
+  }, /History claim .* has no support edge/);
+  const document = history(); document.history.previous_claim_revisions[0].standing = "unresolved";
+  document.history.previous_claim_revisions[0].evidence.forEach(edge => edge.relation = "qualifies");
+  assert.doesNotThrow(() => validateClaimHistory(original, [document]));
+});
+test("metadata-only retained sources cannot support even unresolved historical claims", () => {
+  const value = seed(); const source = value.sources.find(source => source.id === "source-webb-paper"); source.inspection = "metadata_only";
+  for (const standing of ["supported_within_scope", "tentative", "unresolved"]) {
+    const document = history(); const claim = document.history.previous_claim_revisions[0]; claim.standing = standing;
+    claim.evidence[0].source_id = source.id; claim.evidence[0].relation = "supports";
+    assert.throws(() => validateClaimHistory(value, [document]), /History claim .* cannot use metadata-only support/);
+  }
+  const document = history(); const claim = document.history.previous_claim_revisions[0]; claim.standing = "unresolved";
+  claim.evidence[0].source_id = source.id; claim.evidence[0].relation = "qualifies";
+  assert.doesNotThrow(() => validateClaimHistory(value, [document]));
+});
+test("historical retraction checks require reassessment when the recorded notice check predates the claim check", () => {
+  for (const status of ["retracted", "withdrawn"]) for (const checked of ["2026-10-12", "2026-10-13"]) {
+    const value = seed(); const source = value.sources[0]; source.update_status = status; source.update_checked_on = checked;
+    value.claims.filter(claim => claim.evidence.some(edge => edge.source_id === source.id && edge.relation === "supports")).forEach(claim => claim.standing = "unresolved");
+    assert.throws(() => validateClaimHistory(value, [originalHistory]), /History claim .* already checked by that revision without reassessment/);
+    const document = history(); document.history.previous_claim_revisions.filter(claim => claim.evidence.some(edge => edge.source_id === source.id && edge.relation === "supports")).forEach(claim => claim.standing = "unresolved");
+    assert.doesNotThrow(() => validateClaimHistory(value, [document]));
+  }
+});
+test("later retraction checks preserve earlier history but unknown chronology cannot approve it", () => {
+  for (const status of ["retracted", "withdrawn"]) {
+    const value = seed(); const source = value.sources[0]; source.update_status = status; source.accessed_on = "2026-10-14"; source.update_checked_on = "2026-10-14";
+    value.claims.filter(claim => claim.evidence.some(edge => edge.source_id === source.id && edge.relation === "supports")).forEach(claim => claim.standing = "unresolved");
+    assert.doesNotThrow(() => validateClaimHistory(value, [originalHistory]));
+    assert.equal(originalHistory.history.previous_claim_revisions[0].standing, "supported_within_scope");
+    delete source.update_checked_on;
+    assert.throws(() => validateClaimHistory(value, [originalHistory]), /needs a recorded source update-check date/);
+  }
+});
 test("keyword search and request parameters retain bounded read-only behavior", () => {
   assert.equal(searchAtlas(original, { query: "claim-bennu-detection" }).total, 1);
   for (const input of [{ query: "x".repeat(201) }, { query: "x\ny" }, { limit: 0 }, { limit: 51 }, { domain: `domain-${"x".repeat(201)}` }]) assert.throws(() => searchAtlas(original, input), AtlasValidationError);
@@ -140,6 +179,44 @@ test("offset inputs are canonical bounded integers in direct calls and request p
   for (const offset of [0, 1, 9999, 10000]) { assert.equal(parseAtlasQuery(new URLSearchParams(`offset=${offset}`)).offset, offset); assert.doesNotThrow(() => searchAtlas(original, { offset })); }
   for (const offset of [-1, 10001, 1.5, NaN, Infinity, "1", null]) assert.throws(() => searchAtlas(original, { offset }), /offset must be an integer/);
   for (const query of ["offset=-1", "offset=10001", "offset=00", "offset=01", "offset=1e1", "offset=1.0", "offset=", "offset=1&offset=2"]) assert.throws(() => parseAtlasQuery(new URLSearchParams(query)), AtlasValidationError);
+});
+function largeSearchFixture(count) {
+  const value = seed(); const source = value.sources[0], claim = value.claims[0], article = value.articles[0];
+  value.sources = []; value.claims = []; value.articles = [];
+  for (let index = 0; index < count; index++) {
+    const sourceId = `source-fixture-${index}`, claimId = `claim-fixture-${index}`, articleId = `article-fixture-${index}`;
+    value.sources.push({ ...source, id: sourceId, title: `Source ${index}`, doi: `10.1234/fixture-${index}` });
+    value.claims.push({ ...claim, id: claimId, article_id: articleId, text: `needle claim ${index}`, evidence: [{ ...claim.evidence[0], source_id: sourceId }] });
+    value.articles.push({ ...article, id: articleId, slug: `fixture-${index}`, claim_ids: [claimId], related_source_ids: [sourceId], lens: index % 2 ? "historical" : "frontier" });
+  }
+  return normalizeAtlas(value);
+}
+test("keyword search scans each inventory once at the 10000-record bound and keeps article-local references", () => {
+  const value = largeSearchFixture(10000); let claimIdsRead = 0, sourceIdsRead = 0, sourceTitlesRead = 0;
+  for (const claim of value.claims) { const id = claim.id; Object.defineProperty(claim, "id", { get() { assert(++claimIdsRead <= 20000, "claim inventory was rebuilt per article"); return id; } }); }
+  for (const source of value.sources) {
+    const id = source.id, title = source.title;
+    Object.defineProperty(source, "id", { get() { assert(++sourceIdsRead <= 20000, "source inventory was rescanned per article"); return id; } });
+    Object.defineProperty(source, "title", { get() { sourceTitlesRead++; return title; } });
+  }
+  const page = searchAtlas(value, { query: "needle", limit: 50, offset: 9950 });
+  assert.equal(page.total, 10000); assert.equal(page.articles.length, 50); assert.equal(page.articles[0].id, "article-fixture-9950"); assert.equal(page.next_offset, null);
+  assert.equal(claimIdsRead, 20000); assert.equal(sourceIdsRead, 20000); assert.equal(sourceTitlesRead, 10000, "evidence/related duplicates are indexed once per article");
+});
+test("empty, whitespace and excluded-domain search avoid all claim/source inventory work", () => {
+  const value = largeSearchFixture(101);
+  Object.defineProperty(value, "claims", { get() { throw Error("unnecessary claim indexing"); } });
+  Object.defineProperty(value, "sources", { get() { throw Error("unnecessary source indexing"); } });
+  for (const query of ["", "   "]) { const page = searchAtlas(value, { query, lens: "historical", limit: 50, offset: 50 }); assert.equal(page.total, 50); assert.deepEqual(page.articles, []); assert.equal(page.next_offset, null); }
+  assert.equal(searchAtlas(value, { query: "needle", domain: "domain-no-match" }).total, 0);
+});
+test("indexed search preserves claim, source, DOI, related-reference and filtered pagination semantics", () => {
+  const value = largeSearchFixture(101);
+  for (const query of ["claim-fixture-99", "source-fixture-99", "10.1234/fixture-99", "needle claim 99"]) { const page = searchAtlas(value, { query }); assert.deepEqual(page.articles.map(article => article.id), ["article-fixture-99"]); }
+  const page = searchAtlas(value, { query: "needle", lens: "historical", offset: 49, limit: 1 });
+  assert.equal(page.total, 50); assert.equal(page.articles[0].id, "article-fixture-99"); assert.equal(page.next_offset, null);
+  value.articles[0].related_source_ids.push("source-fixture-99");
+  assert.deepEqual(searchAtlas(value, { query: "source-fixture-99" }).articles.map(article => article.id), ["article-fixture-0", "article-fixture-99"]);
 });
 test("compile and reader reject completed historical events after the projection cutoff", () => {
   const future = "2026-10-14";
