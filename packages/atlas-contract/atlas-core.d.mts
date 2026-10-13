@@ -15,8 +15,8 @@ export type AtlasArticle = { id: string; slug: string; title: string; domain_id:
 export type AtlasDomain = { id: string; label: string; coverage: string; proposed: boolean };
 export type AtlasProjection = { source_repository: string; source_path: string; source_commit: string; content_sha256: string; compiled_on: string };
 export type Atlas = { schema_version: "starlight.atlas.v1"; title: string; status: "editorial_draft"; editorial_notice: string; created_on: string; license: string; coverage: { search_completed_on: string; systematic_review: boolean; geographic_exhaustiveness: boolean; languages: string[]; areas_inspected: string[]; limits: string[] }; domains: AtlasDomain[]; sources: AtlasSource[]; claims: AtlasClaim[]; articles: AtlasArticle[]; admission_receipt?: string; projection: AtlasProjection };
-export type AtlasSearchInput = { query?: string; domain?: string; lens?: string; limit?: number };
-export type AtlasSearchResult = { query: string; domain: string | null; lens: string | null; limit: number; total: number; truncated: boolean; articles: AtlasArticle[] };
+export type AtlasSearchInput = { query?: string; domain?: string; lens?: string; limit?: number; offset?: number };
+export type AtlasSearchResult = { query: string; domain: string | null; lens: string | null; limit: number; offset: number; total: number; next_offset: number | null; truncated: boolean; articles: AtlasArticle[] };
 export type AtlasCSL = { id: string; type: string; title: string; URL: string; issued: { "date-parts": number[][] }; accessed: { "date-parts": number[][] }; language: string; note: string; DOI?: string; publisher?: string; "container-title"?: string; author?: { literal: string }[]; volume?: string; issue?: string; page?: string; ISBN?: string };
 export const ATLAS_SCHEMA: "starlight.atlas.v1";
 export const ATLAS_NOTICE: string;

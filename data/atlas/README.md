@@ -25,5 +25,26 @@ History validation covers its public metadata envelope, retained versions, owner
 
 Existing historical source corpora, research methods and authored fictional canon retain their owners. Atlas references those sources rather than relocating them.
 
-Original authored software/documentation records follow the repository MIT license. Source-specific rights remain separate; publication here grants no redistribution rights to third-party material.
+The existing repository `LICENSE` remains unchanged. The Atlas collection metadata is `not_assigned_pending_owner_review`; it does not ratify a license for the encyclopedia's authored content or the consuming website. Source-specific rights remain separate; publication here grants no redistribution rights to third-party material. The pending Registry request is linked above as a request, with no affirmative `admission_receipt` in the public corpus.
+
+## Projection and export boundaries
+
+`compileAtlas` and `validateAtlas` reject historical publication, update, issue, event, access, completed search, created-record, completed claim-check and completed editorial-review dates after `projection.compiled_on`. Future `next_review_on` values schedule work and remain allowed. A digest authenticates normalized bytes only; an exact source commit still needs separate release verification.
+
+Search accepts `offset` as an integer from 0 through 10000 (the corpus bound), default 0, and `limit` from 1 through 50. Results retain corpus order and include `offset`, `total`, `next_offset` (number or null), and `truncated` (`offset + limit < total`). Pagination applies after the query/domain/lens filters. Markdown citation numbers follow the first claim mention of each source, with one definition per source and all individual evidence locators retained.
+
+## Author metadata checked on 2026-10-13
+
+Only bibliographic names were recorded; this check does not expand the original text-inspection scope or establish scientific review. Citation exports use literal author names so personal names and verified collective bylines are not guessed into family/given-name fields.
+
+| Source | Primary author record | Recorded attribution |
+| --- | --- | --- |
+| Bennu paper | [Nature author list](https://www.nature.com/articles/s41561-025-01838-6) | All 14 authors, in publisher order |
+| Pompeii paper | [Nature author list](https://www.nature.com/articles/s41467-025-66634-7), checked through publisher search indexing; [PubMed bibliographic record](https://pubmed.ncbi.nlm.nih.gov/41366210/) cross-check | All 11 authors, in publisher order; live publisher retrieval remains blocked by its cookie redirect |
+| DESI inspected v3 paper | [Exact arXiv v3 metadata](https://arxiv.org/abs/2503.14738v3) | Verified collective author `DESI Collaboration`; no invented or truncated individual-author list |
+| Saguaro inspected v2 paper | [Exact arXiv v2 metadata](https://arxiv.org/abs/2507.17738v2) | All 26 authors, in the inspected version's order |
+| NASA LRD report | [NASA report byline](https://science.nasa.gov/missions/webb/nasa-webb-explores-family-tree-of-newly-discovered-distant-objects/) | `NASA Webb Mission Team` |
+| MIT Pompeii report | [MIT report byline](https://news.mit.edu/2025/pompeii-offers-insights-ancient-roman-building-technology-1209) | Existing `Zach Winn` attribution rechecked |
+
+Reports without an explicit retrievable author byline remain without a guessed author. The Webb paper remains a related record with abstract-only inspection and is not exported as claim evidence. Paper author metadata does not attach a published journal DOI/date to an inspected arXiv citation; those versions remain distinct.
 

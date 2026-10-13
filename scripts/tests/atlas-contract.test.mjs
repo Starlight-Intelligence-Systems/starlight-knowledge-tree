@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { ATLAS_SOURCE_UPDATE_STATUSES, AtlasValidationError, articleMarkdown, citations, compileAtlas, hashAtlasContent, normalizeAtlas, parseAtlasQuery, safeSourceURL, searchAtlas, stableJSON, validateAtlas, validateClaimHistory } from "../../packages/atlas-contract/atlas-core.mjs";
@@ -121,6 +122,62 @@ test("keyword search and request parameters retain bounded read-only behavior", 
   assert.equal(searchAtlas(original, { query: "claim-bennu-detection" }).total, 1);
   for (const input of [{ query: "x".repeat(201) }, { query: "x\ny" }, { limit: 0 }, { limit: 51 }, { domain: `domain-${"x".repeat(201)}` }]) assert.throws(() => searchAtlas(original, input), AtlasValidationError);
   for (const query of ["q=x&q=y", "private=true", "limit=1e1", "limit=01"]) assert.throws(() => parseAtlasQuery(new URLSearchParams(query)), AtlasValidationError);
+});
+test("offset pagination visits every matching article once and stops at the final page", () => {
+  const seen = []; let offset = 0;
+  do {
+    const page = searchAtlas(original, { limit: 2, offset });
+    assert.equal(page.offset, offset); assert.equal(page.total, original.articles.length);
+    assert.equal(page.truncated, offset + 2 < page.total);
+    seen.push(...page.articles.map(article => article.id)); offset = page.next_offset;
+  } while (offset !== null);
+  assert.deepEqual(seen, original.articles.map(article => article.id)); assert.equal(new Set(seen).size, seen.length);
+  for (const offset of [5, 10000]) { const page = searchAtlas(original, { offset, limit: 50 }); assert.deepEqual(page.articles, []); assert.equal(page.next_offset, null); assert.equal(page.truncated, false); }
+  const filtered = searchAtlas(original, { query: "claim-bennu-detection", offset: 1 }); assert.equal(filtered.total, 1); assert.deepEqual(filtered.articles, []); assert.equal(filtered.next_offset, null);
+});
+test("offset inputs are canonical bounded integers in direct calls and request parameters", () => {
+  assert.deepEqual(parseAtlasQuery(new URLSearchParams()), { query: "", domain: "", lens: "", limit: 20, offset: 0 });
+  for (const offset of [0, 1, 9999, 10000]) { assert.equal(parseAtlasQuery(new URLSearchParams(`offset=${offset}`)).offset, offset); assert.doesNotThrow(() => searchAtlas(original, { offset })); }
+  for (const offset of [-1, 10001, 1.5, NaN, Infinity, "1", null]) assert.throws(() => searchAtlas(original, { offset }), /offset must be an integer/);
+  for (const query of ["offset=-1", "offset=10001", "offset=00", "offset=01", "offset=1e1", "offset=1.0", "offset=", "offset=1&offset=2"]) assert.throws(() => parseAtlasQuery(new URLSearchParams(query)), AtlasValidationError);
+});
+test("compile and reader reject completed historical events after the projection cutoff", () => {
+  const future = "2026-10-14";
+  const changes = [v => v.created_on = future, v => v.coverage.search_completed_on = future, v => v.articles[0].created_on = future,
+    ...["issue_on", "event_on", "accessed_on"].map(field => v => v.sources[0][field] = future),
+    ...["published_on", "updated_on", "update_checked_on", "first_preprint_on", "journal_published_on"].map(field => v => { v.sources[0].accessed_on = future; v.sources[0][field] = future; }),
+    v => { v.claims[0].first_recorded_on = future; v.claims[0].last_source_checked_on = future; }, v => v.claims[0].last_source_checked_on = future, v => v.claims[0].review.reviewed_on = future];
+  for (const change of changes) {
+    const value = seed(); change(value); assert.throws(() => compileAtlas(value, projection), /after projection.compiled_on/);
+    const injected = normalizeAtlas(value); injected.projection = { ...projection, content_sha256: hashAtlasContent(injected) };
+    assert.throws(() => validateAtlas(injected), /after projection.compiled_on/);
+  }
+  const value = seed(); value.claims[0].next_review_on = "2027-01-01"; assert.doesNotThrow(() => validateAtlas(compileAtlas(value, projection)));
+});
+test("Markdown numbers unique source footnotes in claim first-mention order, regardless of corpus order", () => {
+  const value = seed(); value.sources.reverse(); const article = value.articles.find(article => article.slug === "roman-concrete-hot-mixing");
+  const claim = value.claims.find(claim => claim.id === article.claim_ids[0]);
+  claim.evidence.push({ ...claim.evidence[0], locator: "Another inspected locator." });
+  const ids = [...new Set(article.claim_ids.flatMap(id => value.claims.find(claim => claim.id === id).evidence.map(edge => edge.source_id)))];
+  const markdown = articleMarkdown(value, article); const definitions = [...markdown.matchAll(/^\[\^(\d+)\]:.*Source record: ([a-z0-9-]+);/gm)];
+  assert.deepEqual(definitions.map(match => match[2]), ids); assert.deepEqual(definitions.map(match => Number(match[1])), ids.map((_, index) => index + 1));
+  assert.equal(markdown.match(/^\[\^1\]:/gm).length, 1); assert(markdown.includes("Another inspected locator"));
+});
+test("canonical public metadata cannot imply ratified content licensing or Registry admission", () => {
+  assert.equal(original.license, "not_assigned_pending_owner_review"); assert(!Object.hasOwn(original, "admission_receipt"));
+  assert.equal(createHash("sha256").update(stableJSON(original.claims)).digest("hex"), "fdb3e96ac62a9a19221d7facf54fce0937779613fe5a5e9e7a3be9d74ab2ce07");
+  const retained = readFileSync(new URL("../../data/atlas/revisions/seed-review-2026-10-13.json", import.meta.url));
+  assert.equal(createHash("sha256").update(retained).digest("hex"), "64311a5602177048dfbc7a158e96106433a1f639565bfb794a5c14d85c8a7396");
+});
+test("CSL preserves verified paper authors and report bylines as literal names", () => {
+  const refs = new Map(citations(original).map(ref => [ref.id, ref]));
+  for (const [id, count, first, last] of [["source-bennu-sugars", 14, "Yoshihiro Furukawa", "Dante S. Lauretta"], ["source-pompeii-paper", 11, "Ellie Vaserman", "Admir Masic"], ["source-lrd-paper", 26, "Pierluigi Rinaldi", "Yongda Zhu"]]) {
+    const ref = refs.get(id); assert.equal(ref.author.length, count); assert.equal(ref.author[0].literal, first); assert.equal(ref.author.at(-1).literal, last);
+    assert(ref.author.every(author => Object.keys(author).join() === "literal"));
+  }
+  assert.deepEqual(refs.get("source-desi-analysis-paper").author, [{ literal: "DESI Collaboration" }]);
+  assert.deepEqual(refs.get("source-pompeii-mit").author, [{ literal: "Zach Winn" }]);
+  assert.deepEqual(refs.get("source-lrd-nasa").author, [{ literal: "NASA Webb Mission Team" }]);
 });
 test("source workflow invokes both Atlas gates and triggers on validator, tests, npm command and workflow changes", () => {
   const workflow = readFileSync(new URL("../../.github/workflows/validate-graph.yml", import.meta.url), "utf8");
