@@ -6,11 +6,19 @@ on:
     paths:
       - "data/**"
       - "packages/**"
+      - "scripts/validate-atlas.mjs"
+      - "scripts/tests/atlas-contract.test.mjs"
+      - "package.json"
+      - ".github/workflows/validate-graph.yml"
   pull_request:
     branches: [main]
     paths:
       - "data/**"
       - "packages/**"
+      - "scripts/validate-atlas.mjs"
+      - "scripts/tests/atlas-contract.test.mjs"
+      - "package.json"
+      - ".github/workflows/validate-graph.yml"
   workflow_dispatch:
 
 jobs:
@@ -40,6 +48,12 @@ jobs:
         run: cd packages/graph-utils && npm run validate -- ../../data
         env:
           NODE_ENV: ci
+
+      - name: Validate Atlas evidence records
+        run: npm run validate:atlas
+
+      - name: Test Atlas evidence boundaries and portable exports
+        run: npm run test:atlas
 
       - name: Check for private data patterns
         run: |

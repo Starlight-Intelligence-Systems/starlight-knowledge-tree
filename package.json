@@ -11,7 +11,9 @@
     "validate": "cd packages/graph-utils && npm run validate",
     "build": "npm run build --workspaces",
     "lint": "npm run lint --workspaces --if-present",
-    "dev": "cd apps/web && npm run dev"
+    "dev": "cd apps/web && npm run dev",
+    "validate:atlas": "node scripts/validate-atlas.mjs",
+    "test:atlas": "node --test scripts/tests/atlas-contract.test.mjs"
   },
   "engines": {
     "node": ">=20.0.0"
