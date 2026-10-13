@@ -185,7 +185,7 @@ export function validateAtlas(input) {
 export function validateClaimHistory(input, documents) {
   const atlas = normalizeAtlas(input);
   require(Array.isArray(documents) && documents.length <= 1000, "Claim history must be a bounded list of documents");
-  const current = new Map(atlas.claims.map(c => [c.id, c])); const sources = new Set(atlas.sources.map(s => s.id)); const versions = new Set();
+  const current = new Map(atlas.claims.map(c => [c.id, c])); const sources = new Map(atlas.sources.map(s => [s.id, s])); const versions = new Set();
   let count = 0;
   for (const document of documents) {
     object(document, "history document");
@@ -209,7 +209,21 @@ export function validateClaimHistory(input, documents) {
       require(!versions.has(version), `History contains duplicate claim revision ${version}`); versions.add(version);
       require(stableJSON(previous) === stableJSON(claim), `History claim ${version} includes unknown or noncanonical fields`);
       require(claim.first_recorded_on <= created && claim.last_source_checked_on <= created, `History claim ${version} is checked after its history record`);
-      for (const edge of claim.evidence) require(sources.has(edge.source_id), `History claim ${version} cites missing retained source ${edge.source_id}`);
+      let supportCount = 0;
+      for (const edge of claim.evidence) {
+        const source = sources.get(edge.source_id);
+        require(source !== undefined, `History claim ${version} cites missing retained source ${edge.source_id}`);
+        if (edge.relation !== "supports") continue;
+        supportCount++;
+        require(source.inspection !== "metadata_only", `History claim ${version} cannot use metadata-only support`);
+        if (["retracted", "withdrawn"].includes(source.update_status) && !["unresolved", "contradicted_within_scope"].includes(claim.standing)) {
+          require(source.update_checked_on !== undefined, `History claim ${version} needs a recorded source update-check date to distinguish historical retraction or withdrawal chronology`);
+          // A later recorded status check cannot silently rewrite an earlier claim's standing.
+          // This clock records editorial knowledge, not the notice's independently verified effective date.
+          require(source.update_checked_on > claim.last_source_checked_on, `History claim ${version} relies on retracted or withdrawn support already checked by that revision without reassessment`);
+        }
+      }
+      require(!["supported_within_scope", "tentative"].includes(claim.standing) || supportCount > 0, `History claim ${version} has no support edge`);
       count++;
     }
   }
@@ -233,10 +247,18 @@ export function searchAtlas(atlas, { query = "", domain = "", lens = "", limit =
   require(Number.isInteger(limit) && limit >= 1 && limit <= 50, "limit must be an integer from 1 to 50");
   require(Number.isInteger(offset) && offset >= 0 && offset <= 10000, "offset must be an integer from 0 to 10000");
   const tokens = query.toLocaleLowerCase("en").trim().split(/\s+/).filter(Boolean);
-  const matches = atlas.articles.filter(a => (!domain || a.domain_id === domain) && (!lens || a.lens === lens)).filter(a => {
-    const text = [a.id, a.slug, a.title, a.editorial_hook, a.question, ...claimsForArticle(atlas, a).flatMap(c => [c.id, c.text, c.scope, c.limits]), ...sourcesForArticle(atlas, a).flatMap(s => [s.id, s.title, s.doi ?? ""])].join(" ").toLocaleLowerCase("en");
-    return tokens.every(token => text.includes(token));
-  });
+  let matches = atlas.articles.filter(a => (!domain || a.domain_id === domain) && (!lens || a.lens === lens));
+  if (tokens.length && matches.length) {
+    const claimsById = new Map(atlas.claims.map(claim => [claim.id, claim]));
+    const sourcesById = new Map(atlas.sources.map(source => [source.id, source]));
+    matches = matches.filter(article => {
+      const claims = article.claim_ids.map(id => claimsById.get(id)).filter(Boolean);
+      const sourceIds = new Set([...claims.flatMap(claim => claim.evidence.map(edge => edge.source_id)), ...article.related_source_ids]);
+      const sources = [...sourceIds].map(id => sourcesById.get(id)).filter(Boolean);
+      const text = [article.id, article.slug, article.title, article.editorial_hook, article.question, ...claims.flatMap(claim => [claim.id, claim.text, claim.scope, claim.limits]), ...sources.flatMap(source => [source.id, source.title, source.doi ?? ""])].join(" ").toLocaleLowerCase("en");
+      return tokens.every(token => text.includes(token));
+    });
+  }
   const truncated = offset + limit < matches.length;
   return { query, domain: domain || null, lens: lens || null, limit, offset, total: matches.length, next_offset: truncated ? offset + limit : null, truncated, articles: matches.slice(offset, offset + limit) };
 }

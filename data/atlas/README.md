@@ -23,6 +23,8 @@ Source update status uses the exact states exported as `ATLAS_SOURCE_UPDATE_STAT
 
 History validation covers its public metadata envelope, retained versions, ownership, references and dates. It checks the predecessor digest's format; it does not reconstruct or cryptographically verify a predecessor snapshot. Compare unchanged retained history and original source bytes through exact Git revisions during review. Do not present a well-formed digest as verified history by itself.
 
+Retained `supported_within_scope` and `tentative` claims need a support edge, and no retained claim may use a currently metadata-only record as support. These checks use the retained source inventory; they do not reconstruct its historical inspection state. Current retracted/withdrawn sources require current claim reassessment. For prior revisions, a recorded `update_checked_on` on or before the prior claim's `last_source_checked_on` also requires reassessment; a later recorded status check preserves the earlier standing as historical text, without endorsing it today. Missing update-check chronology cannot authorize an unreassessed historical use. This comparison records editorial knowledge dates, not a verified notice effective date or proof of source validity at the time.
+
 Existing historical source corpora, research methods and authored fictional canon retain their owners. Atlas references those sources rather than relocating them.
 
 The existing repository `LICENSE` remains unchanged. The Atlas collection metadata is `not_assigned_pending_owner_review`; it does not ratify a license for the encyclopedia's authored content or the consuming website. Source-specific rights remain separate; publication here grants no redistribution rights to third-party material. The pending Registry request is linked above as a request, with no affirmative `admission_receipt` in the public corpus.
@@ -32,6 +34,8 @@ The existing repository `LICENSE` remains unchanged. The Atlas collection metada
 `compileAtlas` and `validateAtlas` reject historical publication, update, issue, event, access, completed search, created-record, completed claim-check and completed editorial-review dates after `projection.compiled_on`. Future `next_review_on` values schedule work and remain allowed. A digest authenticates normalized bytes only; an exact source commit still needs separate release verification.
 
 Search accepts `offset` as an integer from 0 through 10000 (the corpus bound), default 0, and `limit` from 1 through 50. Results retain corpus order and include `offset`, `total`, `next_offset` (number or null), and `truncated` (`offset + limit < total`). Pagination applies after the query/domain/lens filters. Markdown citation numbers follow the first claim mention of each source, with one definition per source and all individual evidence locators retained.
+
+Keyword search indexes the claim and source inventories once per call, then follows each article's own claim/evidence/related-source references. Empty or whitespace-only queries filter articles directly without reading the evidence inventories. Regression checks count inventory accesses at the 10000-record bound instead of depending on a machine-specific timing threshold.
 
 ## Author metadata checked on 2026-10-13
 
