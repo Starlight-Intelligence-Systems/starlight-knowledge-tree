@@ -10,12 +10,15 @@ const STANDINGS = new Set(["supported_within_scope", "tentative", "unresolved", 
 const KINDS = new Set(["observation", "inference", "boundary_condition", "historical_evidence", "model_result", "interpretation", "theology", "fiction"]);
 const LENSES = new Set(["foundation", "frontier", "historical", "hypothesis"]);
 const RELATIONS = new Set(["supports", "qualifies", "contradicts"]);
+export const ATLAS_SOURCE_UPDATE_STATUSES = Object.freeze(["not_independently_checked", "checked_no_known_notice", "no_update_listed_in_inspected_crossmark", "affiliation_correction_recorded", "version_history_inspected", "correction_recorded", "expression_of_concern_recorded", "retracted", "withdrawn"]);
+const UPDATE_STATUSES = new Set(ATLAS_SOURCE_UPDATE_STATUSES);
 
 export class AtlasValidationError extends Error {
   constructor(message) { super(message); this.name = "AtlasValidationError"; }
 }
 function require(condition, message) { if (!condition) throw new AtlasValidationError(message); }
 function object(value, label) { require(value !== null && typeof value === "object" && !Array.isArray(value), `${label} must be an object`); return value; }
+function knownKeys(value, keys, label) { require(Object.keys(value).every(key => keys.includes(key)), `${label} includes unknown public fields`); }
 function string(value, label, max = 20000) { require(typeof value === "string" && value.trim().length > 0 && value.length <= max && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(value), `${label} must be a bounded, nonempty string`); return value; }
 function date(value, label, nullable = false) {
   if (nullable && (value === undefined || value === null)) return null;
@@ -51,6 +54,7 @@ export function safeSourceURL(value) {
 function sourceRecord(value) {
   const s = object(value, "source");
   const out = { id: s.id, title: string(s.title, `${s.id}.title`), url: safeSourceURL(s.url), kind: string(s.kind, `${s.id}.kind`), published_on: date(s.published_on, `${s.id}.published_on`), updated_on: date(s.updated_on, `${s.id}.updated_on`, true), issue_on: date(s.issue_on, `${s.id}.issue_on`, true), event_on: date(s.event_on, `${s.id}.event_on`, true), accessed_on: date(s.accessed_on, `${s.id}.accessed_on`), language: string(s.language, `${s.id}.language`, 50), lineage_id: string(s.lineage_id, `${s.id}.lineage_id`, 200), inspection: s.inspection, inspected_locators: strings(s.inspected_locators, `${s.id}.inspected_locators`, 100), update_status: string(s.update_status, `${s.id}.update_status`, 100) };
+  require(UPDATE_STATUSES.has(s.update_status), `${s.id} has unknown source update status; use an exact canonical state, not a case variant or alias`);
   require(INSPECTIONS.has(s.inspection), `${s.id} has unknown inspection level`);
   require(out.inspected_locators.length > 0, `${s.id} needs inspection locators`);
   require(out.published_on <= out.accessed_on, `${s.id} is published after retrieval`);
@@ -68,7 +72,7 @@ function sourceRecord(value) {
 }
 function claimRecord(value) {
   const c = object(value, "claim");
-  require(Number.isInteger(c.revision) && c.revision > 0, `${c.id} has invalid revision`);
+  require(Number.isInteger(c.revision) && c.revision > 0 && c.revision <= 10000, `${c.id} has invalid revision`);
   require(KINDS.has(c.claim_kind), `${c.id} has unknown claim kind`);
   require(STANDINGS.has(c.standing), `${c.id} has unknown standing`);
   require(Array.isArray(c.evidence) && c.evidence.length > 0 && c.evidence.length <= 100, `${c.id} needs bounded evidence`);
@@ -76,11 +80,11 @@ function claimRecord(value) {
   unique(evidence.map(e => `${e.source_id}\u0000${e.relation}\u0000${e.locator}`), `${c.id}.evidence`);
   const review = object(c.review, `${c.id}.review`);
   require(["draft", "reviewed"].includes(review.status) && typeof review.independent_review === "boolean", `${c.id} has invalid review status`);
+  require(review.independent_review === false, `${c.id} independent-review promotion is unsupported by this editorial-draft contract; a verified revision-bound receipt model is required`);
   const publicReview = { status: review.status, method: string(review.method, `${c.id}.review.method`), independent_review: review.independent_review };
   pickOptionalText(review, publicReview, ["reviewer", "scope", "limits", "rationale"], `${c.id}.review`);
   if (review.receipt_ref !== undefined && review.receipt_ref !== null) publicReview.receipt_ref = receiptRef(review.receipt_ref, `${c.id}.review.receipt_ref`);
   if (review.reviewed_on !== undefined && review.reviewed_on !== null) publicReview.reviewed_on = date(review.reviewed_on, `${c.id}.review.reviewed_on`);
-  if (review.independent_review) require(review.status === "reviewed" && typeof review.receipt_ref === "string" && review.receipt_ref.trim().length > 0, `${c.id} independent review needs a reviewed receipt`);
   const out = { id: c.id, article_id: string(c.article_id, `${c.id}.article_id`, 200), revision: c.revision, text: string(c.text, `${c.id}.text`), claim_kind: c.claim_kind, standing: c.standing, scope: string(c.scope, `${c.id}.scope`), limits: string(c.limits, `${c.id}.limits`), evidence, canonical_claim_ref: c.canonical_claim_ref === undefined || c.canonical_claim_ref === null ? null : string(c.canonical_claim_ref, `${c.id}.canonical_claim_ref`), review: publicReview, first_recorded_on: date(c.first_recorded_on, `${c.id}.first_recorded_on`), last_source_checked_on: date(c.last_source_checked_on, `${c.id}.last_source_checked_on`), next_review_on: date(c.next_review_on, `${c.id}.next_review_on`) };
   require(out.first_recorded_on <= out.last_source_checked_on && out.last_source_checked_on <= out.next_review_on, `${c.id} has inconsistent review dates`);
   return out;
@@ -128,7 +132,7 @@ export function normalizeAtlas(input) {
       if (edge.relation === "supports") {
         supportCount++;
         require(s.inspection !== "metadata_only", `${c.id} cannot use metadata-only support`);
-        require(s.update_status !== "retracted" || ["unresolved", "contradicted_within_scope"].includes(c.standing), `${c.id} relies on retracted support without reassessment`);
+        require(!["retracted", "withdrawn"].includes(s.update_status) || ["unresolved", "contradicted_within_scope"].includes(c.standing), `${c.id} relies on retracted or withdrawn support without reassessment`);
       }
     }
     require(!["supported_within_scope", "tentative"].includes(c.standing) || supportCount > 0, `${c.id} has no support edge`);
@@ -162,6 +166,41 @@ export function validateAtlas(input) {
   require(stableJSON(input) === stableJSON(atlas), "Atlas projection includes unknown or noncanonical public fields");
   return atlas;
 }
+/** Retained history must contain every prior revision and remain attached to its claim. */
+export function validateClaimHistory(input, documents) {
+  const atlas = normalizeAtlas(input);
+  require(Array.isArray(documents) && documents.length <= 1000, "Claim history must be a bounded list of documents");
+  const current = new Map(atlas.claims.map(c => [c.id, c])); const sources = new Set(atlas.sources.map(s => s.id)); const versions = new Set();
+  let count = 0;
+  for (const document of documents) {
+    object(document, "history document");
+    knownKeys(document, ["schema_version", "created_on", "history"], "History document");
+    require(document.schema_version === "starlight.atlas.claim_history.v1", "Unknown claim history schema");
+    const created = date(document.created_on, "history.created_on"); const history = object(document.history, "history");
+    knownKeys(history, ["reviewed_on", "reviewer", "predecessor_sha256", "previous_claim_revisions", "review_status", "public_release_condition"], "History metadata");
+    require(date(history.reviewed_on, "history.reviewed_on") <= created, "History review is after its record date");
+    string(history.reviewer, "history.reviewer", 200);
+    require(typeof history.predecessor_sha256 === "string" && /^[a-f0-9]{64}$/.test(history.predecessor_sha256), "History predecessor digest must be 64 lowercase hexadecimal characters; snapshot identity needs separate Git review");
+    for (const field of ["review_status", "public_release_condition"]) if (history[field] !== undefined) string(history[field], `history.${field}`);
+    require(Array.isArray(history.previous_claim_revisions) && history.previous_claim_revisions.length > 0 && history.previous_claim_revisions.length <= 10000, "History needs bounded prior claim records");
+    for (const previous of history.previous_claim_revisions) {
+      object(previous, "previous claim");
+      require(typeof previous.id === "string" && ID.test(previous.id) && previous.id.length <= 200, "History has invalid claim id");
+      const claim = claimRecord(previous); const latest = current.get(claim.id);
+      require(latest !== undefined, `History references unknown claim ${claim.id}`);
+      require(claim.article_id === latest.article_id, `History claim ${claim.id} has article ownership mismatch`);
+      require(claim.revision < latest.revision, `History claim ${claim.id} is not a prior revision`);
+      const version = `${claim.id}@${claim.revision}`;
+      require(!versions.has(version), `History contains duplicate claim revision ${version}`); versions.add(version);
+      require(stableJSON(previous) === stableJSON(claim), `History claim ${version} includes unknown or noncanonical fields`);
+      require(claim.first_recorded_on <= created && claim.last_source_checked_on <= created, `History claim ${version} is checked after its history record`);
+      for (const edge of claim.evidence) require(sources.has(edge.source_id), `History claim ${version} cites missing retained source ${edge.source_id}`);
+      count++;
+    }
+  }
+  for (const claim of atlas.claims) for (let revision = 1; revision < claim.revision; revision++) require(versions.has(`${claim.id}@${revision}`), `History is missing prior claim revision ${claim.id}@${revision}`);
+  return { documents: documents.length, previous_claim_revisions: count };
+}
 export function claimsForArticle(atlas, article) { const byId = new Map(atlas.claims.map(c => [c.id, c])); return article.claim_ids.map(id => byId.get(id)).filter(Boolean); }
 export function articleForSlug(atlas, slug) {
   if (typeof slug !== "string" || !SLUG.test(slug) || slug.length > 160) return undefined;
@@ -191,10 +230,10 @@ export function parseAtlasQuery(params) {
   require(rawLimit === null || /^(?:[1-9]|[1-4][0-9]|50)$/.test(rawLimit), "limit must be an integer from 1 to 50");
   return { query: params.get("q") ?? "", domain: params.get("domain") ?? "", lens: params.get("lens") ?? "", limit: rawLimit === null ? 20 : Number(rawLimit) };
 }
-function markdownText(value) { return value.replace(/[\\`*_{}[\]<>#!|]/g, "\\$&").replace(/\r?\n/g, " "); }
-function human(value) { return value.replaceAll("_", " "); }
+function markdownText(value) { return value.replace(/\r\n?|\n/g, " ").replace(/[!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~]/g, "\\$&"); }
+function human(value) { return markdownText(value.replaceAll("_", " ")); }
 function sourceDetails(s) {
-  const details = [`Published ${s.published_on}${s.published_date_precision ? ` (${s.published_date_precision} precision)` : ""}${s.updated_on ? `; updated ${s.updated_on}` : ""}${s.issue_on ? `; issue ${s.issue_on} (${s.issue_date_precision ?? "day"} precision)` : ""}; accessed ${s.accessed_on}.`, `Inspection: ${human(s.inspection)}; scope: ${markdownText(s.inspected_locators.join("; "))}.`, `Update status: ${human(s.update_status)}.`];
+  const details = [`Kind: ${human(s.kind)}.`, `Published ${s.published_on}${s.published_date_precision ? ` (${markdownText(s.published_date_precision)} precision)` : ""}${s.updated_on ? `; updated ${s.updated_on}` : ""}${s.issue_on ? `; issue ${s.issue_on} (${markdownText(s.issue_date_precision ?? "day")} precision)` : ""}; accessed ${s.accessed_on}.`, `Inspection: ${human(s.inspection)}; scope: ${markdownText(s.inspected_locators.join("; "))}.`, `Update status: ${human(s.update_status)}.`, `Source rights: full-text redistribution ${markdownText(s.rights.full_text_redistribution)}; stored content ${markdownText(s.rights.stored_content)}; media included ${s.rights.media_included ? "yes" : "no"}.`];
   if (s.publication_stage) details.push(`Publication stage: ${human(s.publication_stage)}.`);
   if (s.retrieval_mode) details.push(`Retrieval mode: ${human(s.retrieval_mode)}.`);
   if (s.inspected_version) details.push(`Inspected version: ${markdownText(s.inspected_version)}${s.arxiv_id ? `; arXiv ${markdownText(s.arxiv_id)}` : ""}.`);
@@ -212,7 +251,7 @@ export function articleMarkdown(atlas, article) {
   const lines = [`# ${markdownText(article.title)}`, "", `> EDITORIAL DRAFT — ${ATLAS_NOTICE}`, "", markdownText(article.editorial_hook), "", "## Claims", ""];
   for (const c of claimsForArticle(atlas, article)) {
     const refs = [...new Set(c.evidence.map(e => e.source_id))].map(id => `[^${footnote.get(id)}]`).join("");
-    lines.push(`${markdownText(c.text)} ${refs}`, "", `**Standing:** ${human(c.standing)}. **Kind:** ${human(c.claim_kind)}.`, `**Scope:** ${markdownText(c.scope)}`, `**Limits:** ${markdownText(c.limits)}`, `**Claim revision:** ${c.id}@${c.revision}`, `**Review:** ${human(c.review.status)}; independent review: ${c.review.independent_review ? "recorded" : "not recorded"}.${c.review.scope ? ` Scope: ${markdownText(c.review.scope)}` : ""}${c.review.receipt_ref ? ` Receipt: ${markdownText(c.review.receipt_ref)}` : ""}`, "");
+    lines.push(`${markdownText(c.text)} ${refs}`, "", `**Standing:** ${human(c.standing)}. **Kind:** ${human(c.claim_kind)}.`, `**Scope:** ${markdownText(c.scope)}`, `**Limits:** ${markdownText(c.limits)}`, `**Claim revision:** ${c.id}@${c.revision}`, `**Review:** ${human(c.review.status)}; method: ${human(c.review.method)}; independent review: ${c.review.independent_review ? "recorded" : "not recorded"}.${c.review.scope ? ` Scope: ${markdownText(c.review.scope)}` : ""}${c.review.receipt_ref ? ` Receipt: ${markdownText(c.review.receipt_ref)}` : ""}`, "");
     for (const e of c.evidence) lines.push(`- Evidence [^${footnote.get(e.source_id)}] — ${e.relation}; locator: ${markdownText(e.locator)}. Inspection note: ${markdownText(e.inspection_note)}`);
     lines.push("");
   }
@@ -220,7 +259,7 @@ export function articleMarkdown(atlas, article) {
   for (const s of used) lines.push(`[^${footnote.get(s.id)}]: ${markdownText(s.title)}. <${s.url}>. Source record: ${s.id}; lineage: ${markdownText(s.lineage_id)}. ${sourceDetails(s)}`);
   const extras = sourcesForArticle(atlas, article).filter(s => !footnote.has(s.id));
   if (extras.length) { lines.push("", "## Related records; not used as claim evidence", ""); for (const s of extras) lines.push(`- ${markdownText(s.title)} — <${s.url}>; source record: ${s.id}. ${sourceDetails(s)}`); }
-  lines.push("", "## Provenance", "", `Schema: ${ATLAS_SCHEMA}. Publication status: editorial draft.`);
+  lines.push("", "## Provenance", "", `Schema: ${ATLAS_SCHEMA}. Publication status: editorial draft.`, `Collection license: ${markdownText(atlas.license)}`);
   if (atlas.projection) lines.push(`Source: ${atlas.projection.source_repository}@${atlas.projection.source_commit}:${atlas.projection.source_path}`, `Content SHA256: ${atlas.projection.content_sha256}`, `Compiled: ${atlas.projection.compiled_on}`);
   return `${lines.join("\n")}\n`;
 }
@@ -229,12 +268,18 @@ export function citations(atlas, article) {
   const used = article ? sourcesForArticle(atlas, article, true) : atlas.sources.filter(s => atlas.claims.some(c => c.evidence.some(e => e.source_id === s.id)));
   const kinds = { research_paper: "article-journal", preprint: "article", book: "book", manuscript: "manuscript", archival_document: "manuscript", dataset: "dataset", patent: "patent", thesis: "thesis", conference_paper: "paper-conference" };
   return used.map(s => {
-    const out = { id: s.id, type: kinds[s.kind] ?? "webpage", title: s.title, URL: s.url, issued: { "date-parts": [s.published_on.split("-").map(Number)] }, accessed: { "date-parts": [s.accessed_on.split("-").map(Number)] }, language: s.language, note: `Atlas inspection: ${s.inspection}; update status: ${s.update_status}. ${s.retrieval_limit ?? ""}`.trim() };
-    if (s.doi) out.DOI = s.doi;
+    const inspectedPreprint = s.kind === "preprint" || new URL(s.url).hostname.toLowerCase() === "arxiv.org" || /^arxiv_/i.test(s.publication_stage ?? "");
+    const usesJournalDate = !inspectedPreprint && Boolean(s.journal_published_on);
+    const issuedDate = usesJournalDate ? s.journal_published_on : s.published_on;
+    const issuedParts = issuedDate.split("-").map(Number);
+    if (!usesJournalDate && s.published_date_precision === "month") issuedParts.pop();
+    if (!usesJournalDate && s.published_date_precision === "year") issuedParts.splice(1);
+    const out = { id: s.id, type: inspectedPreprint ? "article" : (Object.hasOwn(kinds, s.kind) ? kinds[s.kind] : "webpage"), title: s.title, URL: s.url, issued: { "date-parts": [issuedParts] }, accessed: { "date-parts": [s.accessed_on.split("-").map(Number)] }, language: s.language, note: `Atlas inspection: ${s.inspection}; update status: ${s.update_status}. Source rights: full-text redistribution ${s.rights.full_text_redistribution}; stored content ${s.rights.stored_content}; media included ${s.rights.media_included ? "yes" : "no"}. ${s.retrieval_limit ?? ""}${inspectedPreprint ? ` Inspected preprint${s.inspected_version ? ` ${s.inspected_version}` : ""}; any recorded journal DOI/date refers to a separate version, not this citation.` : ""}`.trim() };
+    if (s.doi && !inspectedPreprint) out.DOI = s.doi;
     if (s.publisher) out.publisher = s.publisher;
-    if (s.container_title) out["container-title"] = s.container_title;
+    if (s.container_title && !inspectedPreprint) out["container-title"] = s.container_title;
     if (s.authors?.length) out.author = s.authors.map(literal => ({ literal })); else if (s.report_author) out.author = [{ literal: s.report_author }];
-    for (const key of ["volume", "issue", "pages"]) if (s[key]) out[key === "pages" ? "page" : key] = s[key];
+    for (const key of ["volume", "issue", "pages"]) if (s[key] && !inspectedPreprint) out[key === "pages" ? "page" : key] = s[key];
     if (s.isbn) out.ISBN = s.isbn;
     return out;
   });

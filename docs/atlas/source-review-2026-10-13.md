@@ -2,7 +2,7 @@
 
 **Decision: suitable for a public explorer of clearly labeled research drafts with the corrections below.** These are five curated case studies with ten scoped claims, not a completed encyclopedia, a systematic review, a latest-per-field feed or independently validated science.
 
-The corrected canonical corpus is `data/atlas/corpus.json`: **5 articles, 10 claims, 11 sources, 18 proposed domains**. It passes the existing offline corpus validator. All articles remain `draft`; all claims are revision 2. The predecessor hash and complete revision-1 claim records are preserved in `data/atlas/revisions/seed-review-2026-10-13.json`.
+The corrected canonical corpus is `data/atlas/corpus.json`: **5 articles, 10 claims, 11 sources, 18 proposed domains**. It passes the offline corpus and retained-history validators. All articles remain `editorial_draft`; all claims are revision 2. The predecessor hash and complete revision-1 claim records are preserved in `data/atlas/revisions/seed-review-2026-10-13.json`. This is a source-review record; formal portfolio registration and verified production deployment retain their separate receipts.
 
 The `investigate-claim` skill and its frontier-science standard guided this separate editorial pass. A separate agent checking sources adds editorial scrutiny; it does not create a second scientific lineage, human peer review or replication. Institutional reports and papers from the same study are one lineage.
 
